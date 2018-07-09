@@ -39,9 +39,17 @@ def get_chunk(n,timesteps,future_time):
         x[i,:,2] = list(high_return.loc[start_date:mid_date-1,stock])
         x[i,:,3] = list(low_return.loc[start_date:mid_date-1,stock])
         x[i,:,4] = list(close_return.loc[start_date:mid_date-1,stock])
-        y[i] = np.std(close_return.loc[mid_date:end_date-1,stock])*np.sqrt(250/future_time)
-
+        y[i] = (np.std(close_return.loc[mid_date:end_date-1,stock]) \
+        -np.std(close_return.loc[mid_date-future_time:mid_date-1,stock]))*np.sqrt(250/future_time)
+        if y[i] != y[i]:
+            y[i] = -1
         i = i+1
-
+    y[y==-1] = 5
+    y[y>0.08] = 4
+    y[(y>0.02)*(y<=0.08)] = 3
+    y[(y>-0.02)*(y<=0.02)] = 2
+    y[(y>-0.08)*(y<=-0.02)] = 1
+    y[(y!=-1)*(y<=-0.08)] = 0
+    y = [int(x) for x in y]
     return(x,y)
-
+
