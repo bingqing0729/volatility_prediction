@@ -11,4 +11,4 @@ for var in var_list:
     daily_return = temp.pct_change(1).iloc[1:-1,:]
     output = open(output_name, 'wb')
     pickle.dump(daily_return, output, -1)
-    output.close()
+    output.close()

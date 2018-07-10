@@ -13,7 +13,7 @@ import pandas as pd
 
 class cnn():
     
-    def __init__(self, timesteps, future_time, batch_size, num_hidden, learning_rate, training_steps, display_step):
+    def __init__(self, num_layer, timesteps, future_time, batch_size, learning_rate, training_steps, display_step):
         
         self.timesteps = timesteps
         self.future_time = future_time
@@ -22,11 +22,11 @@ class cnn():
         
         # Hyper parameters
         self.training_steps = training_steps
-        self.num_hidden = num_hidden
         self.learning_rate = learning_rate
         
         # Graph related
         self.graph = tf.Graph()
+        self.num_layer = num_layer
         self.tf_train_samples = None
         self.tf_train_future_vol = None
 
@@ -52,24 +52,21 @@ class cnn():
             
             def model(x):
 
-                W_conv = weight_variable([5,5,1,32])
-                b_conv = bias_variable([32])
-
                 x = tf.reshape(x,[self.batch_size,self.timesteps,5,1])
-                h_conv = tf.nn.relu(conv2d(x,W_conv)+b_conv)
+                for j in range(0,self.num_layer):
+                    num_core = 8*(j+1)
+                    W_conv = weight_variable([2,2,1,num_core])
+                    b_conv = bias_variable([num_core])
+                    h_conv = tf.nn.relu(conv2d(x,W_conv)+b_conv)
 
-                W_conv2 = weight_variable([5, 5, 32, 64])
-                b_conv2 = bias_variable([64])
 
-                h_conv2 = tf.nn.relu(conv2d(h_conv, W_conv2) + b_conv2) 
+                w_fc = weight_variable([self.timesteps*5*num_core,1024])
+                b_fc = bias_variable([1024])
 
-                w_fc = weight_variable([50*5*64,64])
-                b_fc = bias_variable([64])
-
-                h_pool_flat = tf.reshape(h_conv2,[self.batch_size,50*5*64])
+                h_pool_flat = tf.reshape(h_conv,[self.batch_size,self.timesteps*5*num_core])
                 h_fc = tf.nn.relu(tf.matmul(h_pool_flat,w_fc)+b_fc)
 
-                w_end = weight_variable([64,6])
+                w_end = weight_variable([1024,6])
                 b_end = bias_variable([6])
                 return tf.nn.softmax(tf.matmul(h_fc,w_end)+b_end)
 
@@ -95,14 +92,18 @@ class cnn():
 
             for step in range(0, self.training_steps):
                 
-                training_x, training_y = get_chunk(self.batch_size,self.timesteps,self.future_time)
+                training_x, training_y = get_chunk(self.batch_size)
                 # Run optimization op (backprop)
                 _, l[step], accuracy[step] = sess.run([self.optimizer,self.loss,self.accuracy], \
                 feed_dict={self.tf_train_samples: training_x, self.tf_train_future_vol: training_y})       
                 if step % self.display_step == 0:
                     print("Step " + str(step) + ", Loss= " + format(l[step]) \
                      + ", accuracy " + format(accuracy[step]))
-
+            
+            plt.figure()
+            f_name = 'batch_size_'+str(self.batch_size)+'num_layer_'+str(self.num_layer)+'.png'
+            plt.plot(accuracy)
+            plt.savefig(f_name)
             print("Optimization Finished!")
 
 
