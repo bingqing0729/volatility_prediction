@@ -13,9 +13,12 @@ import pandas as pd
 
 class nn():
     
-    def __init__(self, samples, sample_size, method, num_layer, num_hidden, timesteps, future_time, batch_size, learning_rate, training_steps, display_step):
+    def __init__(self, samples, test_samples, sample_size, method, \
+    num_layer, num_hidden, timesteps, future_time, batch_size, \
+    learning_rate, training_steps, display_step):
         
         self.samples = samples
+        self.test_samples = test_samples
         self.sample_size = sample_size
         self.method = method
         self.timesteps = timesteps
@@ -39,8 +42,8 @@ class nn():
     def define_graph(self):
         
         with self.graph.as_default():
-            self.tf_train_samples = tf.placeholder("float", [self.batch_size, self.timesteps])
-            self.tf_train_future_vol = tf.placeholder("float", [self.batch_size])
+            self.tf_train_samples = tf.placeholder("float", [None, self.timesteps])
+            self.tf_train_future_vol = tf.placeholder("float", [None])
             
             def weight_variable(shape):
                 initial = tf.truncated_normal(shape,stddev=0.1)
@@ -95,12 +98,16 @@ class nn():
                 for layer in range(self.num_layer):
                     num_hidden = self.num_hidden/2
                     dense = tf.layers.dense(dense,num_hidden,activation=tf.nn.relu)
-
+                dense = tf.layers.dense(dense,1)
+                return dense
+            
             if self.method == 'cnn':
                 self.output = model_cnn(self.tf_train_samples)
-            else:
+            elif self.method == 'lstm':
                 self.output = model_lstm(self.tf_train_samples)
-        
+            elif self.method == 'bnn':
+                self.output = model_basic_nn(self.tf_train_samples)
+            
             #y = tf.one_hot(self.tf_train_future_vol,5)
             #self.prediction = tf.argmax(output,1)
             #self.true_label = tf.argmax(y,1)
@@ -127,24 +134,34 @@ class nn():
             print("Start:")
 
             l = np.zeros(self.training_steps)
+            l_test = np.zeros(self.training_steps)
             #accuracy = np.zeros(self.training_steps)
             #rough_accuracy = np.zeros(self.training_steps)
             rp = []
+            test_x = self.test_samples[0]
+            test_y = self.test_samples[1]
+
             for step in range(0, self.training_steps):
                 
                 training_x, training_y = get_chunk(step,self.batch_size,self.samples,self.sample_size,self.timesteps)
                 # Run optimization op (backprop)
                 _, l[step],rp = sess.run([self.optimizer,self.loss,self.output], \
-                feed_dict={self.tf_train_samples: training_x, self.tf_train_future_vol: training_y})       
+                feed_dict={self.tf_train_samples: training_x, self.tf_train_future_vol: training_y}) 
+                l_test[step], _ = sess.run([self.loss,self.output],feed_dict={self.tf_train_samples: test_x, \
+                                        self.tf_train_future_vol: test_y})
                 if step % self.display_step == 0:
+                    
                     print("Step " + str(step) + ", Loss= " + format(l[step]))
                     print(training_y)
-                    print(np.mean(training_x,1))
+                    #print(np.mean(training_x,1))
                     print(rp)
-            #plt.figure()
-            #f_name = 'batch_size_'+str(self.batch_size)+'num_layer_'+str(self.num_layer)+'.png'
-            #plt.plot(accuracy)
-            #plt.savefig(f_name)
+
+            
+            plt.figure()
+            f_name = 'batch_size_'+str(self.batch_size)+'num_layer_'+str(self.num_layer)+'.png'
+            plt.plot(l)
+            plt.plot(l_test)
+            plt.savefig(f_name)
             print("Optimization Finished!")
 
 
