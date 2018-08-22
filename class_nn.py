@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import pandas as pd
+import pickle
 
 
 
@@ -36,15 +37,17 @@ class nn():
         self.num_hidden = num_hidden
         self.tf_train_samples = None
         self.tf_train_future_vol = None
-
+        
 
 
     def define_graph(self):
         
         with self.graph.as_default():
-            self.tf_train_samples = tf.placeholder("float", [None, self.timesteps])
-            self.tf_train_future_vol = tf.placeholder("float", [None])
-            
+
+            self.tf_train_samples = tf.placeholder("float", [None, self.timesteps],name='x')
+            self.tf_train_future_vol = tf.placeholder("float", [None],name='y')
+        
+
             def weight_variable(shape):
                 initial = tf.truncated_normal(shape,stddev=0.1)
                 return tf.Variable(initial)
@@ -106,22 +109,25 @@ class nn():
             elif self.method == 'lstm':
                 self.output = model_lstm(self.tf_train_samples)
             elif self.method == 'bnn':
-                self.output = model_basic_nn(self.tf_train_samples)
+                self.output = tf.identity(model_basic_nn(self.tf_train_samples),name='out')
             
             #y = tf.one_hot(self.tf_train_future_vol,5)
-            #self.prediction = tf.argmax(output,1)
-            #self.true_label = tf.argmax(y,1)
-            #correct_prediction = tf.equal(self.prediction, self.true_label)
+            
+            self.prediction = tf.less(self.output,self.tf_train_samples[:,-1])
+            self.true_label = tf.less(self.tf_train_future_vol,self.tf_train_samples[:,-1])
+            correct_prediction = tf.equal(self.prediction, self.true_label)
             #self.rough_prediction = tf.maximum(tf.minimum(self.prediction,3),1)
             #self.rough_label = tf.maximum(tf.minimum(self.true_label,3),1)
             #rough_correct_prediction = tf.equal(self.rough_prediction,self.rough_label)
-            #self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+            self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
             #self.rough_accuracy = tf.reduce_mean(tf.cast(rough_correct_prediction,"float"))
             #self.loss = -tf.reduce_mean(y * tf.log(output))
             #self.loss = -tf.reduce_mean(tf.one_hot(self.rough_label,3)*tf.log(output))
+            self.mean_loss = tf.reduce_mean(tf.square(tf.subtract(tf.reduce_mean(self.tf_train_samples,1),self.tf_train_future_vol)))
             self.loss = tf.reduce_mean(tf.square(tf.subtract(self.output,self.tf_train_future_vol)))
             self.optimizer = tf.train.GradientDescentOptimizer(learning_rate = self.learning_rate).minimize(self.loss)
             #self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
+            self.saver = tf.train.Saver()
 
     def run(self):
         
@@ -135,9 +141,11 @@ class nn():
 
             l = np.zeros(self.training_steps)
             l_test = np.zeros(self.training_steps)
+            l_mean = np.zeros(self.training_steps)
+            accuracy = np.zeros(self.training_steps)
             #accuracy = np.zeros(self.training_steps)
             #rough_accuracy = np.zeros(self.training_steps)
-            rp = []
+            predict_value = []
             test_x = self.test_samples[0]
             test_y = self.test_samples[1]
 
@@ -145,24 +153,51 @@ class nn():
                 
                 training_x, training_y = get_chunk(step,self.batch_size,self.samples,self.sample_size,self.timesteps)
                 # Run optimization op (backprop)
-                _, l[step],rp = sess.run([self.optimizer,self.loss,self.output], \
+                _, l[step], predict_value = sess.run([self.optimizer,self.loss,self.output], \
                 feed_dict={self.tf_train_samples: training_x, self.tf_train_future_vol: training_y}) 
-                l_test[step], _ = sess.run([self.loss,self.output],feed_dict={self.tf_train_samples: test_x, \
+                l_test[step], accuracy[step], l_mean[step] = sess.run([self.loss,self.accuracy,self.mean_loss],feed_dict={self.tf_train_samples: test_x, \
                                         self.tf_train_future_vol: test_y})
                 if step % self.display_step == 0:
                     
                     print("Step " + str(step) + ", Loss= " + format(l[step]))
-                    print(training_y)
+                    #print(training_y)
                     #print(np.mean(training_x,1))
-                    print(rp)
+                    #print(predict_value)
+                    print(accuracy[step])
 
-            
+            self.saver.save(sess, './checkpoint_dir/MyModel')
+
             plt.figure()
             f_name = 'batch_size_'+str(self.batch_size)+'num_layer_'+str(self.num_layer)+'.png'
             plt.plot(l)
             plt.plot(l_test)
+            plt.plot(l_mean)
             plt.savefig(f_name)
             print("Optimization Finished!")
+    
+    def test(self,data_file):
 
+        test_data = pd.read_pickle(data_file)
+        length = len(test_data[0])
+        prediction = np.zeros(length)
+        sess = tf.Session()
+        new_saver = tf.train.import_meta_graph('./checkpoint_dir/MyModel.meta')
+        new_saver.restore(sess, tf.train.latest_checkpoint('./checkpoint_dir'))
+
+        graph = tf.get_default_graph()
+        x = graph.get_tensor_by_name('x:0')
+        y = graph.get_tensor_by_name('y:0')
+        output = graph.get_tensor_by_name('out:0')
+        for i in range(10):
+            a = np.array(test_data[1][i])
+            a = a.reshape([1,])
+            prediction[i] = sess.run(output,feed_dict={x: test_data[0][i][np.newaxis,:], y: a})
+            print(i/length)
+        
+        
+        out = open('2009_prediction.pkl','wb')
+        pickle.dump(prediction,out,-1)
+        out.close()
+        
 
 
